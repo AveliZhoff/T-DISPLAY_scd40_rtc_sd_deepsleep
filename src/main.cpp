@@ -22,6 +22,12 @@ RTC_DATA_ATTR bool previousDisplayValid = false;
 RTC_DATA_ATTR uint16_t previousDisplayCo2 = 0;
 RTC_DATA_ATTR float previousDisplayTemperature = 0.0f;
 RTC_DATA_ATTR float previousDisplayHumidity = 0.0f;
+RTC_DATA_ATTR bool previousMeasurementCo2Valid = false;
+RTC_DATA_ATTR uint16_t previousMeasurementCo2 = 0;
+RTC_DATA_ATTR float previousMeasurementTemperature = 0.0f;
+RTC_DATA_ATTR float previousMeasurementHumidity = 0.0f;
+RTC_DATA_ATTR float previousMeasurementBattery = 0.0f;
+RTC_DATA_ATTR float previousMeasurementSupply = 0.0f;
 RTC_DATA_ATTR bool previousDisplayRtcValid = false;
 RTC_DATA_ATTR char previousDisplayDate[16] = "";
 RTC_DATA_ATTR char previousDisplayTime[16] = "";
@@ -197,11 +203,32 @@ void loop() {
   }
 
   VoltageMeasurements voltage = voltageReadMeasurements();
+  uint16_t averagedCo2 = co2;
+  float averagedTemperature = temperature;
+  float averagedHumidity = humidity;
+  float averagedBattery = voltage.battery;
+  float averagedSupply = voltage.supply;
+  if (previousMeasurementCo2Valid) {
+    averagedCo2 = static_cast<uint16_t>(
+        (static_cast<uint32_t>(co2) + previousMeasurementCo2) / 2);
+    averagedTemperature =
+        (temperature + previousMeasurementTemperature) / 2.0f;
+    averagedHumidity = (humidity + previousMeasurementHumidity) / 2.0f;
+    averagedBattery = (voltage.battery + previousMeasurementBattery) / 2.0f;
+    averagedSupply = (voltage.supply + previousMeasurementSupply) / 2.0f;
+  }
+  previousMeasurementCo2 = co2;
+  previousMeasurementTemperature = temperature;
+  previousMeasurementHumidity = humidity;
+  previousMeasurementBattery = voltage.battery;
+  previousMeasurementSupply = voltage.supply;
+  previousMeasurementCo2Valid = true;
+
   previousChargerConnected = voltage.isChargerConnected;
   uint32_t awakeTimeMilliseconds = millis() - wakeStartTime;
   MeasurementRecord currentRecord = {
-      rtcUnixTime(), co2, temperature, humidity, voltage.battery,
-      voltage.supply, wakeCount, awakeTimeMilliseconds,
+      rtcUnixTime(), averagedCo2, averagedTemperature, averagedHumidity,
+      averagedBattery, averagedSupply, wakeCount, awakeTimeMilliseconds,
       static_cast<uint32_t>(sdReady ? sdStorageCountRecords() : 0)};
   MeasurementRecord pendingRecords[11];
   size_t pendingCount = 0;
@@ -212,10 +239,10 @@ void loop() {
                             previousDisplayTime, previousDisplayRtcValid);
   }
   if (displayEnabled) {
-    displayShowMeasurement(co2, temperature, humidity);
-    previousDisplayCo2 = co2;
-    previousDisplayTemperature = temperature;
-    previousDisplayHumidity = humidity;
+    displayShowMeasurement(averagedCo2, averagedTemperature, averagedHumidity);
+    previousDisplayCo2 = averagedCo2;
+    previousDisplayTemperature = averagedTemperature;
+    previousDisplayHumidity = averagedHumidity;
     previousDisplayRtcValid = false;
     previousDisplayValid = true;
   }
