@@ -88,18 +88,21 @@ void setup() {
   displayFullInit = !canWakeDisplay && displayEnabled;
   if (displayFullInit) {
     displayBegin();
-    displayShowWifiStatus(DisplayStatus::Connecting);
   } else if (displayEnabled) {
     displayWakeBegin();
+  }
+  if (displayEnabled) {
+    displayResetStatuses();
+    displayShowWifiStatus(DisplayStatus::Connecting);
   }
 
   wifiConnected = wifiBegin();
   if (!wifiConnected) {
-    if (displayFullInit) {
+    if (displayEnabled) {
       displayShowWifiStatus(DisplayStatus::Error);
     }
     Serial.println("[WIFI] unavailable; continuing in offline mode");
-  } else if (displayFullInit) {
+  } else if (displayEnabled) {
     displayShowWifiStatus(DisplayStatus::Connected);
   }
 
@@ -132,26 +135,28 @@ void setup() {
     displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
   }
 
-  if (displayFullInit) {
+  if (displayEnabled) {
     displayShowThingSpeakStatus(DisplayStatus::Connecting);
   }
   if (!thingSpeakBegin()) {
-    if (displayFullInit) {
+    if (displayEnabled) {
       displayShowThingSpeakStatus(DisplayStatus::Error);
+    }
+    if (displayFullInit) {
       displayShowMessage("THINGSPEAK ERROR", 2);
     }
     enterDeepSleep(false);
     return;
   }
   thingSpeakSetSendInterval(THINGSPEAK_SEND_INTERVAL_SECONDS);
-  if (displayFullInit) {
+  if (displayEnabled) {
     displayShowThingSpeakStatus(wifiConnected ? DisplayStatus::Connected
                                                : DisplayStatus::Error);
   }
 
   sdReady = sdStorageBegin();
   Serial.printf("[SD] ready=%s\n", sdReady ? "true" : "false");
-  if (displayFullInit) {
+  if (displayEnabled) {
     displayShowSdStatus(sdReady ? DisplayStatus::Connected
                                 : DisplayStatus::Error);
   }
@@ -159,18 +164,20 @@ void setup() {
     sdStoragePrintAll();
   }
 
-  if (!isDeepSleepWake) {
+  if (displayEnabled) {
     displayShowScdStatus(DisplayStatus::Connecting);
   }
   if (!scd40Begin()) {
-    if (displayFullInit) {
+    if (displayEnabled) {
       displayShowScdStatus(DisplayStatus::Error);
+    }
+    if (displayFullInit) {
       displayShowMessage("SCD40 ERROR", 2);
     }
     enterDeepSleep(false);
     return;
   }
-  if (displayFullInit) {
+  if (displayEnabled) {
     displayShowScdStatus(DisplayStatus::Connected);
   }
 
@@ -276,7 +283,7 @@ void loop() {
                 : sendStatus == ThingSpeakSendStatus::Error ? "error"
                                                             : "not attempted");
   if (sendStatus == ThingSpeakSendStatus::Success) {
-    if (displayFullInit) {
+    if (displayEnabled) {
       displayShowThingSpeakStatus(DisplayStatus::Connected);
     }
     if (sdReady && pendingCount > 0 && !sdStorageRemoveFirst(pendingCount)) {
@@ -288,7 +295,7 @@ void loop() {
                     static_cast<unsigned>(pendingCount));
     }
   } else if (sendStatus == ThingSpeakSendStatus::Error) {
-    if (displayFullInit) {
+    if (displayEnabled) {
       displayShowThingSpeakStatus(DisplayStatus::Error);
     }
     if (sdReady && !sdStorageAppend(currentRecord)) {

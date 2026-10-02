@@ -23,6 +23,30 @@ char previousRtcTime[16] = "";
 constexpr uint8_t rtcFont = 4;
 constexpr int16_t rtcDateY = 56;
 constexpr int16_t rtcTimeY = 84;
+constexpr uint8_t statusLabelFont = 4;
+constexpr int16_t statusLabelY = 2;
+constexpr int16_t co2ValueX = 80;
+constexpr int16_t co2UnitX = 170;
+constexpr int16_t co2Y = 60;
+
+int16_t statusLabelX(uint8_t column) {
+  constexpr const char* labels[] = {"WIFI", "SCD", "TS", "SD"};
+  constexpr uint8_t labelCount = sizeof(labels) / sizeof(labels[0]);
+  int16_t totalLabelWidth = 0;
+  int16_t precedingLabelWidth = 0;
+
+  for (uint8_t index = 0; index < labelCount; ++index) {
+    int16_t labelWidth = display.textWidth(labels[index], statusLabelFont);
+    totalLabelWidth += labelWidth;
+    if (index < column) {
+      precedingLabelWidth += labelWidth;
+    }
+  }
+
+  int16_t gap =
+      (display.width() - totalLabelWidth) / (labelCount + 1);
+  return gap + precedingLabelWidth + column * gap;
+}
 
 uint16_t statusColor(DisplayStatus status) {
   switch (status) {
@@ -38,10 +62,11 @@ uint16_t statusColor(DisplayStatus status) {
   }
 }
 
-void drawStatusLabel(const char* label, uint16_t color, int16_t y) {
+void drawStatusLabel(const char* label, uint16_t color, uint8_t column) {
   display.setTextDatum(TL_DATUM);
   display.setTextColor(color, TFT_BLACK);
-  display.drawString(label, 4, y, 2);
+  display.drawString(label, statusLabelX(column), statusLabelY,
+                     statusLabelFont);
 }
 
 void drawFrame() {
@@ -56,10 +81,10 @@ void displayBegin() {
   display.fillScreen(TFT_BLACK);
   displaySetBacklight(true);
   drawFrame();
-  drawStatusLabel("wifi", statusColor(wifiStatus), 2);
-  drawStatusLabel("scd", statusColor(scdStatus), 22);
-  drawStatusLabel("TS", statusColor(thingSpeakStatus), 42);
-  drawStatusLabel("SD", statusColor(sdStatus), 62);
+  drawStatusLabel("WIFI", statusColor(wifiStatus), 0);
+  drawStatusLabel("SCD", statusColor(scdStatus), 1);
+  drawStatusLabel("TS", statusColor(thingSpeakStatus), 2);
+  drawStatusLabel("SD", statusColor(sdStatus), 3);
 }
 
 void displayWakeBegin() {
@@ -79,28 +104,35 @@ void displayWakeBegin() {
   digitalWrite(TFT_CS, HIGH);
 }
 
+void displayResetStatuses() {
+  displayShowWifiStatus(DisplayStatus::Idle);
+  displayShowScdStatus(DisplayStatus::Idle);
+  displayShowThingSpeakStatus(DisplayStatus::Idle);
+  displayShowSdStatus(DisplayStatus::Idle);
+}
+
 void displayShowWifiStatus(DisplayStatus status) {
   wifiStatus = status;
-  drawStatusLabel("wifi", TFT_BLACK, 2);
-  drawStatusLabel("wifi", statusColor(wifiStatus), 2);
+  drawStatusLabel("WIFI", TFT_BLACK, 0);
+  drawStatusLabel("WIFI", statusColor(wifiStatus), 0);
 }
 
 void displayShowScdStatus(DisplayStatus status) {
   scdStatus = status;
-  drawStatusLabel("scd", TFT_BLACK, 22);
-  drawStatusLabel("scd", statusColor(scdStatus), 22);
+  drawStatusLabel("SCD", TFT_BLACK, 1);
+  drawStatusLabel("SCD", statusColor(scdStatus), 1);
 }
 
 void displayShowThingSpeakStatus(DisplayStatus status) {
   thingSpeakStatus = status;
-  drawStatusLabel("TS", TFT_BLACK, 42);
-  drawStatusLabel("TS", statusColor(thingSpeakStatus), 42);
+  drawStatusLabel("TS", TFT_BLACK, 2);
+  drawStatusLabel("TS", statusColor(thingSpeakStatus), 2);
 }
 
 void displayShowSdStatus(DisplayStatus status) {
   sdStatus = status;
-  drawStatusLabel("SD", TFT_BLACK, 62);
-  drawStatusLabel("SD", statusColor(sdStatus), 62);
+  drawStatusLabel("SD", TFT_BLACK, 3);
+  drawStatusLabel("SD", statusColor(sdStatus), 3);
 }
 
 void displayShowRtcTime(const char* dateText, const char* timeText,
@@ -143,8 +175,8 @@ void displayClearMeasurement(uint16_t co2, float temperature, float humidity,
 
   display.setTextDatum(MC_DATUM);
   display.setTextColor(TFT_BLACK, TFT_BLACK);
-  display.drawString(co2Text, 100, 42, 6);
-  display.drawString("ppm", 200, 42, 4);
+  display.drawString(co2Text, co2ValueX, co2Y, 6);
+  display.drawString("ppm", co2UnitX, co2Y, 4);
   display.drawString(temperatureText, 70, 108, 4);
   display.drawString(humidityText, 170, 108, 4);
 
@@ -160,10 +192,10 @@ void displayShowMessage(const char* message, uint8_t font) {
   display.setTextDatum(MC_DATUM);
   display.drawString(message, display.width() / 2, display.height() / 2, font);
   drawFrame();
-  drawStatusLabel("wifi", statusColor(wifiStatus), 2);
-  drawStatusLabel("scd", statusColor(scdStatus), 22);
-  drawStatusLabel("TS", statusColor(thingSpeakStatus), 42);
-  drawStatusLabel("SD", statusColor(sdStatus), 62);
+  drawStatusLabel("WIFI", statusColor(wifiStatus), 0);
+  drawStatusLabel("SCD", statusColor(scdStatus), 1);
+  drawStatusLabel("TS", statusColor(thingSpeakStatus), 2);
+  drawStatusLabel("SD", statusColor(sdStatus), 3);
   snprintf(startupMessage, sizeof(startupMessage), "%s", message);
   startupMessageFont = font;
   hasStartupMessage = true;
@@ -203,7 +235,7 @@ void displayShowMeasurement(uint16_t co2, float temperature, float humidity) {
              previousHumidity);
 
     display.setTextColor(TFT_BLACK, TFT_BLACK);
-    display.drawString(previousCo2ValueText, 100, 42, 6);
+    display.drawString(previousCo2ValueText, co2ValueX, co2Y, 6);
     display.drawString(previousTemperatureText, 70, 108, 4);
     display.drawString(previousHumidityText, 170, 108, 4);
   }
@@ -240,8 +272,8 @@ void displayShowMeasurement(uint16_t co2, float temperature, float humidity) {
   }
 
   display.setTextColor(co2Color, TFT_BLACK);
-  display.drawString(co2ValueText, 100, 42, 6);
-  display.drawString("ppm", 200, 42, 4);
+  display.drawString(co2ValueText, co2ValueX, co2Y, 6);
+  display.drawString("ppm", co2UnitX, co2Y, 4);
   display.setTextColor(temperatureColor, TFT_BLACK);
   display.drawString(temperatureText, 70, 108, 4);
   display.setTextColor(humidityColor, TFT_BLACK);

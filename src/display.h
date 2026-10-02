@@ -11,6 +11,7 @@ enum class DisplayStatus {
 
 void displayBegin();
 void displayWakeBegin();
+void displayResetStatuses();
 void displayShowWifiStatus(DisplayStatus status);
 void displayShowScdStatus(DisplayStatus status);
 void displayShowThingSpeakStatus(DisplayStatus status);
