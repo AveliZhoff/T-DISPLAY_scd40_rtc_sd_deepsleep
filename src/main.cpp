@@ -19,7 +19,6 @@ constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
 RTC_DATA_ATTR uint32_t wakeCount = 0;
 RTC_DATA_ATTR bool previousChargerConnected = false;
 RTC_DATA_ATTR bool previousDisplayValid = false;
-RTC_DATA_ATTR uint16_t previousDisplayCo2 = 0;
 RTC_DATA_ATTR float previousDisplayTemperature = 0.0f;
 RTC_DATA_ATTR float previousDisplayHumidity = 0.0f;
 RTC_DATA_ATTR bool previousMeasurementCo2Valid = false;
@@ -217,7 +216,6 @@ void loop() {
     averagedBattery = (voltage.battery + previousMeasurementBattery) / 2.0f;
     averagedSupply = (voltage.supply + previousMeasurementSupply) / 2.0f;
   }
-  previousMeasurementCo2 = co2;
   previousMeasurementTemperature = temperature;
   previousMeasurementHumidity = humidity;
   previousMeasurementBattery = voltage.battery;
@@ -234,18 +232,18 @@ void loop() {
   size_t pendingCount = 0;
 
   if (displayEnabled && isDeepSleepWake && previousDisplayValid) {
-    displayClearMeasurement(previousDisplayCo2, previousDisplayTemperature,
+    displayClearMeasurement(previousMeasurementCo2, previousDisplayTemperature,
                             previousDisplayHumidity, previousDisplayDate,
                             previousDisplayTime, previousDisplayRtcValid);
   }
   if (displayEnabled) {
     displayShowMeasurement(averagedCo2, averagedTemperature, averagedHumidity);
-    previousDisplayCo2 = averagedCo2;
     previousDisplayTemperature = averagedTemperature;
     previousDisplayHumidity = averagedHumidity;
     previousDisplayRtcValid = false;
     previousDisplayValid = true;
   }
+  previousMeasurementCo2 = averagedCo2;
 
 #if DISABLE_THINGSPEAK_SEND
   if (sdReady && sdStorageAppend(currentRecord)) {
