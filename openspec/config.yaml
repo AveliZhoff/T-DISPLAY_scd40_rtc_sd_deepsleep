@@ -1,0 +1,43 @@
+schema: spec-driven
+
+context: |
+  Язык проекта: C++ на Arduino framework для ESP32.
+  Сборка и зависимости управляются PlatformIO; целевое окружение — lilygo-t-display.
+  OpenSpec-артефакты и пользовательская документация пишутся на русском языке.
+  Структурные заголовки OpenSpec и нормативные ключевые слова MUST/SHALL остаются на английском.
+  Спецификации описывают подтвержденное текущее поведение, а не предполагаемое целевое поведение.
+  При расхождении исходников и README для текущего поведения приоритет имеют исходники.
+  Не копировать реальные Wi-Fi-пароли, ThingSpeak API-ключи и другие секреты в OpenSpec, документацию или примеры.
+  В документации ссылаться на файлы конфигурации, не раскрывая их содержимое.
+
+rules:
+  specs:
+    - Описывать наблюдаемое поведение устройства и проверяемые условия.
+    - Каждый Requirement должен содержать хотя бы один Scenario с GIVEN, WHEN и THEN.
+    - Не включать реальные учетные данные и секреты.
+  tasks:
+    - Для изменений прошивки проверять сборку PlatformIO командой pio run -e lilygo-t-display..
+githubCopilot:
+  cloudAgent: false
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
