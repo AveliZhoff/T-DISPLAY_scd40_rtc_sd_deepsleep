@@ -229,6 +229,30 @@ void displayShowModeMessage(const char* state) {
   hasStartupMessage = false;
 }
 
+void displayShowPreviousMeasurement(uint16_t co2, float temperature,
+                                     float humidity) {
+  char co2ValueText[12];
+  char temperatureText[16];
+  char humidityText[16];
+  snprintf(co2ValueText, sizeof(co2ValueText), "%u", co2);
+  snprintf(temperatureText, sizeof(temperatureText), "%.1f C", temperature);
+  snprintf(humidityText, sizeof(humidityText), "%.1f %%", humidity);
+
+  display.setTextDatum(MC_DATUM);
+  if (hasStartupMessage) {
+    display.setTextColor(TFT_BLACK, TFT_BLACK);
+    display.drawString(startupMessage, display.width() / 2,
+                       display.height() / 2, startupMessageFont);
+    hasStartupMessage = false;
+  }
+
+  display.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  display.drawString(co2ValueText, co2ValueX, co2Y, 6);
+  display.drawString("ppm", co2UnitX, co2Y, 4);
+  display.drawString(temperatureText, 70, 108, 4);
+  display.drawString(humidityText, 170, 108, 4);
+}
+
 void displayShowMeasurement(uint16_t co2, float temperature, float humidity) {
   if (hasPreviousMeasurement && previousCo2 == co2 &&
       previousTemperature == temperature && previousHumidity == humidity) {

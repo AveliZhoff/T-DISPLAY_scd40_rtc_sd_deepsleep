@@ -25,4 +25,6 @@ void displayClearMeasurement(uint16_t co2, float temperature, float humidity,
 							 const char* dateText, const char* timeText,
 							 bool clearRtc);
 void displayShowMessage(const char* message, uint8_t font);
+void displayShowPreviousMeasurement(uint16_t co2, float temperature,
+                                    float humidity);
 void displayShowMeasurement(uint16_t co2, float temperature, float humidity);

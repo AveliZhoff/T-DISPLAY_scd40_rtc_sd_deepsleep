@@ -194,6 +194,11 @@ void setup() {
   if (displayEnabled) {
     displayResetStatuses();
     displayShowWifiStatus(DisplayStatus::Connecting);
+    if (previousDisplayValid) {
+      displayShowPreviousMeasurement(previousMeasurementCo2,
+                                     previousDisplayTemperature,
+                                     previousDisplayHumidity);
+    }
   }
 
   wifiConnected = wifiBegin();
@@ -284,6 +289,11 @@ void setup() {
   if (displayFullInit) {
     displayShowMessage("W8 ...", 3);
     displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
+    if (displayEnabled && previousDisplayValid) {
+      displayShowPreviousMeasurement(previousMeasurementCo2,
+                                     previousDisplayTemperature,
+                                     previousDisplayHumidity);
+    }
   }
 }
 
@@ -348,12 +358,12 @@ void loop() {
   }
   if (displayEnabled) {
     displayShowMeasurement(averagedCo2, averagedTemperature, averagedHumidity);
-    previousDisplayTemperature = averagedTemperature;
-    previousDisplayHumidity = averagedHumidity;
-    previousDisplayRtcValid = false;
-    previousDisplayValid = true;
   }
   previousMeasurementCo2 = averagedCo2;
+  previousDisplayTemperature = averagedTemperature;
+  previousDisplayHumidity = averagedHumidity;
+  previousDisplayRtcValid = false;
+  previousDisplayValid = true;
 
 #if DISABLE_THINGSPEAK_SEND
   if (sdReady && sdStorageAppend(currentRecord)) {
