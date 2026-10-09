@@ -8,34 +8,45 @@ struct DeviceConfig {
   const char* hostname;
   unsigned long channelNumber;
   const char* writeApiKey;
+  uint32_t deepSleepIntervalSeconds;
+  uint32_t thingSpeakSendIntervalSeconds;
 };
 
 inline DeviceConfig getDeviceConfig() {
   const char* hostname = "";
   unsigned long myChannelNumber = 0;
   const char* myWriteAPIKey = "";
+  uint32_t deepSleepIntervalSeconds = 30;
+  uint32_t thingSpeakSendIntervalSeconds = 300;
 
   switch (DEVICE_NUM) {
     case 1:
       hostname = "esp32-scd40-01";
       myChannelNumber = 1000001;
       myWriteAPIKey = "YOUR_DEVICE_1_WRITE_API_KEY";
+      deepSleepIntervalSeconds = 30;
+      thingSpeakSendIntervalSeconds = 300;
       break;
     case 2:
       hostname = "esp32-scd40-02";
       myChannelNumber = 1000002;
       myWriteAPIKey = "YOUR_DEVICE_2_WRITE_API_KEY";
+      deepSleepIntervalSeconds = 30;
+      thingSpeakSendIntervalSeconds = 300;
       break;
     case 3:
       hostname = "esp32-scd40-03";
       myChannelNumber = 1000003;
       myWriteAPIKey = "YOUR_DEVICE_3_WRITE_API_KEY";
+      deepSleepIntervalSeconds = 30;
+      thingSpeakSendIntervalSeconds = 300;
       break;
     default:
       break;
   }
 
-  return {hostname, myChannelNumber, myWriteAPIKey};
+  return {hostname, myChannelNumber, myWriteAPIKey,
+          deepSleepIntervalSeconds, thingSpeakSendIntervalSeconds};
 }
 
 struct WiFiAP {

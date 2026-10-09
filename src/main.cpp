@@ -9,13 +9,13 @@
 #include "sd_storage.h"
 #include "voltage_sensor.h"
 #include "wifi_manager.h"
+#include "device_config.h"
 
-#define DEEP_SLEEP_INTERVAL_SECONDS 30
-#define THINGSPEAK_SEND_INTERVAL_SECONDS 300
 #define DISABLE_THINGSPEAK_SEND 0
 
 constexpr gpio_num_t BUTTON_1_PIN = GPIO_NUM_0;
 constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
+DeviceConfig deviceConfig = getDeviceConfig();
 
 RTC_DATA_ATTR uint32_t wakeCount = 0;
 RTC_DATA_ATTR bool previousChargerConnected = false;
@@ -111,7 +111,8 @@ void enterDeepSleep(bool keepDisplayOn) {
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   pinMode(BUTTON_2_PIN, INPUT);
   if (esp_sleep_enable_timer_wakeup(
-          static_cast<uint64_t>(DEEP_SLEEP_INTERVAL_SECONDS) * 1000000ULL) !=
+          static_cast<uint64_t>(deviceConfig.deepSleepIntervalSeconds) *
+              1000000ULL) !=
       ESP_OK) {
     Serial.println("[SLEEP] timer wakeup setup failed");
   }
@@ -253,7 +254,7 @@ void setup() {
     enterDeepSleep(false);
     return;
   }
-  thingSpeakSetSendInterval(THINGSPEAK_SEND_INTERVAL_SECONDS);
+  thingSpeakSetSendInterval(deviceConfig.thingSpeakSendIntervalSeconds);
   if (displayEnabled) {
     displayShowThingSpeakStatus(wifiConnected ? DisplayStatus::Connected
                                                : DisplayStatus::Error);
