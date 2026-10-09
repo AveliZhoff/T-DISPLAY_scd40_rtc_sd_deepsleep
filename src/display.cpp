@@ -201,6 +201,34 @@ void displayShowMessage(const char* message, uint8_t font) {
   hasStartupMessage = true;
 }
 
+void displayClearMessage() {
+  display.fillScreen(TFT_BLACK);
+  drawFrame();
+  hasStartupMessage = false;
+  displayShowWifiStatus(wifiStatus);
+  displayShowScdStatus(scdStatus);
+  displayShowThingSpeakStatus(thingSpeakStatus);
+  displayShowSdStatus(sdStatus);
+}
+
+void displayShowModeMessage(const char* state) {
+  display.fillScreen(TFT_BLACK);
+  display.setTextColor(TFT_WHITE, TFT_BLACK);
+  display.setTextDatum(MC_DATUM);
+  display.setFreeFont(&FreeSansBold24pt7b);
+  display.drawString("display", display.width() / 2,
+                     display.height() / 2 - 22);
+  display.drawString(state, display.width() / 2,
+                     display.height() / 2 + 22);
+  display.setFreeFont(nullptr);
+  drawFrame();
+  drawStatusLabel("WIFI", statusColor(wifiStatus), 0);
+  drawStatusLabel("SCD", statusColor(scdStatus), 1);
+  drawStatusLabel("TS", statusColor(thingSpeakStatus), 2);
+  drawStatusLabel("SD", statusColor(sdStatus), 3);
+  hasStartupMessage = false;
+}
+
 void displayShowMeasurement(uint16_t co2, float temperature, float humidity) {
   if (hasPreviousMeasurement && previousCo2 == co2 &&
       previousTemperature == temperature && previousHumidity == humidity) {

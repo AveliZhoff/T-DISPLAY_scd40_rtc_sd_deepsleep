@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <esp_sleep.h>
+#include <Preferences.h>
 
 #include "display.h"
 #include "scd40_sensor.h"
@@ -9,7 +10,7 @@
 #include "voltage_sensor.h"
 #include "wifi_manager.h"
 
-#define DEEP_SLEEP_INTERVAL_SECONDS 60
+#define DEEP_SLEEP_INTERVAL_SECONDS 30
 #define THINGSPEAK_SEND_INTERVAL_SECONDS 300
 #define DISABLE_THINGSPEAK_SEND 0
 
@@ -18,6 +19,7 @@ constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
 
 RTC_DATA_ATTR uint32_t wakeCount = 0;
 RTC_DATA_ATTR bool previousChargerConnected = false;
+RTC_DATA_ATTR bool displayModeButtonHoldHandled = false;
 RTC_DATA_ATTR bool previousDisplayValid = false;
 RTC_DATA_ATTR float previousDisplayTemperature = 0.0f;
 RTC_DATA_ATTR float previousDisplayHumidity = 0.0f;
@@ -36,12 +38,75 @@ bool sdReady = false;
 bool isDeepSleepWake = false;
 bool displayFullInit = true;
 bool displayEnabled = true;
+bool displayModeConfigured = false;
+bool displayKeepOnInDeepSleep = false;
 bool wifiConnected = false;
 esp_sleep_wakeup_cause_t wakeupCause = ESP_SLEEP_WAKEUP_UNDEFINED;
 
+bool loadDisplayMode(bool& enabled) {
+  Preferences preferences;
+  if (!preferences.begin("display", false)) {
+    Serial.println("[DISPLAY] failed to open stored settings");
+    return false;
+  }
+
+  bool configured = preferences.isKey("enabled");
+  if (configured) {
+    enabled = preferences.getBool("enabled", true);
+  }
+  preferences.end();
+  return configured;
+}
+
+bool saveDisplayMode(bool enabled) {
+  Preferences preferences;
+  if (!preferences.begin("display", false)) {
+    Serial.println("[DISPLAY] failed to open settings for saving");
+    return false;
+  }
+
+  size_t bytesWritten = preferences.putBool("enabled", enabled);
+  preferences.end();
+  if (bytesWritten != sizeof(bool)) {
+    Serial.println("[DISPLAY] failed to save display mode");
+    return false;
+  }
+  return true;
+}
+
+bool isButtonWake() {
+  return wakeupCause == ESP_SLEEP_WAKEUP_EXT0 ||
+         wakeupCause == ESP_SLEEP_WAKEUP_EXT1;
+}
+
+bool displayModeButtonHeldForOneSecond() {
+  pinMode(BUTTON_2_PIN, INPUT);
+  if (digitalRead(BUTTON_2_PIN) != LOW) {
+    displayModeButtonHoldHandled = false;
+    return false;
+  }
+  if (displayModeButtonHoldHandled) {
+    return false;
+  }
+
+  delay(1000);
+  if (digitalRead(BUTTON_2_PIN) != LOW) {
+    displayModeButtonHoldHandled = false;
+    return false;
+  }
+
+  displayModeButtonHoldHandled = true;
+  return true;
+}
+
 void enterDeepSleep(bool keepDisplayOn) {
   if (displayEnabled) {
-    displaySetBacklight(keepDisplayOn);
+    bool keepBacklightOn =
+        displayModeConfigured ? displayKeepOnInDeepSleep : keepDisplayOn;
+    if (!keepBacklightOn) {
+      delay(1000);
+    }
+    displaySetBacklight(keepBacklightOn);
   }
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   pinMode(BUTTON_2_PIN, INPUT);
@@ -68,6 +133,7 @@ void setup() {
   ++wakeCount;
   wakeupCause = esp_sleep_get_wakeup_cause();
   isDeepSleepWake = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+  pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   Serial.printf("[BOOT] wakeup cause=%d deep-sleep=%s\n",
                 static_cast<int>(wakeupCause),
                 isDeepSleepWake ? "true" : "false");
@@ -77,6 +143,10 @@ void setup() {
     Serial.printf("[BOOT] wakeup by button 2 (GPIO35), status=%d\n",
                   digitalRead(BUTTON_2_PIN));
   }
+  bool storedDisplayEnabled = true;
+  displayModeConfigured = loadDisplayMode(storedDisplayEnabled);
+  displayKeepOnInDeepSleep =
+      displayModeConfigured && storedDisplayEnabled;
   voltageSetup();
   VoltageMeasurements bootVoltage = voltageReadMeasurements();
   bool canWakeDisplay = isDeepSleepWake &&
@@ -84,12 +154,42 @@ void setup() {
                         previousChargerConnected;
   bool timerWakeWithoutPower =
       wakeupCause == ESP_SLEEP_WAKEUP_TIMER && !bootVoltage.isChargerConnected;
-  displayEnabled = !timerWakeWithoutPower;
+  displayEnabled = displayModeConfigured ? storedDisplayEnabled
+                                         : !timerWakeWithoutPower;
+  if (isButtonWake()) {
+    displayEnabled = true;
+  }
+  bool displayModeChanged = false;
+  bool requestedDisplayEnabled =
+      displayModeConfigured ? storedDisplayEnabled : displayEnabled;
+  if (isButtonWake() && displayModeButtonHeldForOneSecond()) {
+    requestedDisplayEnabled = !requestedDisplayEnabled;
+    if (saveDisplayMode(requestedDisplayEnabled)) {
+      displayModeChanged = true;
+      displayModeConfigured = true;
+      displayKeepOnInDeepSleep = requestedDisplayEnabled;
+      if (requestedDisplayEnabled) {
+        displayEnabled = true;
+      }
+      Serial.printf("[DISPLAY] mode saved: %s\n",
+                    requestedDisplayEnabled ? "on" : "off");
+    }
+  }
+  if (!displayEnabled) {
+    displaySetBacklight(false);
+  }
   displayFullInit = !canWakeDisplay && displayEnabled;
   if (displayFullInit) {
     displayBegin();
   } else if (displayEnabled) {
     displayWakeBegin();
+  }
+  if (displayModeChanged) {
+    displayFullInit = true;
+    displayBegin();
+    displayShowModeMessage(requestedDisplayEnabled ? "on" : "off");
+    delay(1000);
+    displayClearMessage();
   }
   if (displayEnabled) {
     displayResetStatuses();
@@ -188,6 +288,9 @@ void setup() {
 }
 
 void loop() {
+  if (digitalRead(BUTTON_2_PIN) != LOW) {
+    displayModeButtonHoldHandled = false;
+  }
   if (millis() - lastMeasurement < 1000) {
     return;
   }
