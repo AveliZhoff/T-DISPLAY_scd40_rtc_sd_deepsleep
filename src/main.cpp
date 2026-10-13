@@ -101,8 +101,8 @@ bool displayModeButtonHeldForOneSecond() {
 
 void enterDeepSleep(bool keepDisplayOn) {
   if (displayEnabled) {
-    bool keepBacklightOn =
-        displayModeConfigured ? displayKeepOnInDeepSleep : keepDisplayOn;
+    bool keepBacklightOn = keepDisplayOn &&
+                           (!displayModeConfigured || displayKeepOnInDeepSleep);
     if (!keepBacklightOn) {
       delay(1000);
     }
@@ -146,8 +146,6 @@ void setup() {
   }
   bool storedDisplayEnabled = true;
   displayModeConfigured = loadDisplayMode(storedDisplayEnabled);
-  displayKeepOnInDeepSleep =
-      displayModeConfigured && storedDisplayEnabled;
   voltageSetup();
   VoltageMeasurements bootVoltage = voltageReadMeasurements();
   bool canWakeDisplay = isDeepSleepWake &&
@@ -155,8 +153,12 @@ void setup() {
                         previousChargerConnected;
   bool timerWakeWithoutPower =
       wakeupCause == ESP_SLEEP_WAKEUP_TIMER && !bootVoltage.isChargerConnected;
-  displayEnabled = displayModeConfigured ? storedDisplayEnabled
-                                         : !timerWakeWithoutPower;
+  bool poweredDisplayAllowed = bootVoltage.isChargerConnected;
+  displayKeepOnInDeepSleep =
+      displayModeConfigured && storedDisplayEnabled && poweredDisplayAllowed;
+  displayEnabled = poweredDisplayAllowed &&
+                   (displayModeConfigured ? storedDisplayEnabled
+                                          : !timerWakeWithoutPower);
   if (isButtonWake()) {
     displayEnabled = true;
   }
@@ -168,7 +170,7 @@ void setup() {
     if (saveDisplayMode(requestedDisplayEnabled)) {
       displayModeChanged = true;
       displayModeConfigured = true;
-      displayKeepOnInDeepSleep = requestedDisplayEnabled;
+      displayKeepOnInDeepSleep = requestedDisplayEnabled && poweredDisplayAllowed;
       if (requestedDisplayEnabled) {
         displayEnabled = true;
       }
