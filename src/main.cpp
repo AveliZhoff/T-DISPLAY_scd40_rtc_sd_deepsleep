@@ -34,6 +34,8 @@ RTC_DATA_ATTR char previousDisplayDate[16] = "";
 RTC_DATA_ATTR char previousDisplayTime[16] = "";
 uint32_t lastMeasurement = 0;
 uint32_t wakeStartTime = 0;
+uint32_t scd40StartTime = 0;
+bool scd40FirstMeasurementLogged = false;
 bool sdReady = false;
 bool isDeepSleepWake = false;
 bool displayFullInit = true;
@@ -129,7 +131,16 @@ void enterDeepSleep(bool keepDisplayOn) {
 void setup() {
   Serial.begin(115200);
   delay(100);
+
+  // Датчик запускается раньше всех подсистем: обновление его сигнала (~5 с)
+  // идет параллельно остальной загрузке и сокращает время бодрствования.
+  scd40StartTime = millis();
+  bool scd40Started = scd40Begin();
+
   Serial.println("\n[BOOT] start");
+  Serial.printf("[SCD40] periodic measurement=%s at %lu ms\n",
+                scd40Started ? "ok" : "error",
+                static_cast<unsigned long>(scd40StartTime));
   wakeStartTime = millis();
   ++wakeCount;
   wakeupCause = esp_sleep_get_wakeup_cause();
@@ -197,6 +208,8 @@ void setup() {
   if (displayEnabled) {
     displayResetStatuses();
     displayShowWifiStatus(DisplayStatus::Connecting);
+    displayShowScdStatus(scd40Started ? DisplayStatus::Connected
+                                      : DisplayStatus::Error);
     if (previousDisplayValid) {
       displayShowPreviousMeasurement(previousMeasurementCo2,
                                      previousDisplayTemperature,
@@ -272,21 +285,12 @@ void setup() {
     sdStoragePrintAll();
   }
 
-  if (displayEnabled) {
-    displayShowScdStatus(DisplayStatus::Connecting);
-  }
-  if (!scd40Begin()) {
-    if (displayEnabled) {
-      displayShowScdStatus(DisplayStatus::Error);
-    }
+  if (!scd40Started) {
     if (displayFullInit) {
       displayShowMessage("SCD40 ERROR", 2);
     }
     enterDeepSleep(false);
     return;
-  }
-  if (displayEnabled) {
-    displayShowScdStatus(DisplayStatus::Connected);
   }
 
   if (displayFullInit) {
@@ -322,6 +326,12 @@ void loop() {
       displayShowMessage("SCD40 ERROR", 2);
     }
     return;
+  }
+
+  if (!scd40FirstMeasurementLogged) {
+    scd40FirstMeasurementLogged = true;
+    Serial.printf("[SCD40] first measurement ready at %lu ms after start\n",
+                  static_cast<unsigned long>(millis() - scd40StartTime));
   }
 
   VoltageMeasurements voltage = voltageReadMeasurements();
