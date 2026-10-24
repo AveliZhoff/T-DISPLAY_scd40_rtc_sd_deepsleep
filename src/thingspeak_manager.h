@@ -7,6 +7,7 @@
 
 bool thingSpeakBegin();
 void thingSpeakSetSendInterval(uint32_t intervalSeconds);
+bool thingSpeakSendDue(uint32_t recordTimestamp);
 void thingSpeakSetSimulateErrorOnce(bool enabled);
 
 enum class ThingSpeakSendStatus {
