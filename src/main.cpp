@@ -44,7 +44,6 @@ bool isDeepSleepWake = false;
 bool displayFullInit = true;
 bool displayEnabled = true;
 bool displayModeConfigured = false;
-bool displayOffMode = false;
 bool displayKeepOnInDeepSleep = false;
 bool wifiConnected = false;
 bool sendDue = true;
@@ -117,14 +116,15 @@ bool displayModeButtonHeldForOneSecond() {
 }
 
 void enterDeepSleep(bool keepDisplayOn) {
+  // Пауза только для кнопочного пробуждения: показания должны оставаться на
+  // экране не меньше секунды при любом режиме дисплея, прежде чем подсветка
+  // погаснет или устройство уйдет в deep sleep.
+  if (isButtonWake()) {
+    delay(buttonWakePauseMs);
+  }
   if (displayEnabled) {
     bool keepBacklightOn = keepDisplayOn &&
                            (!displayModeConfigured || displayKeepOnInDeepSleep);
-    // Единственная пауза перед сном: экран был временно включен кнопкой в
-    // режиме display off, даем пользователю увидеть показания перед гашением.
-    if (!keepBacklightOn && displayOffMode && isButtonWake()) {
-      delay(buttonWakePauseMs);
-    }
     displaySetBacklight(keepBacklightOn);
   }
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
@@ -178,7 +178,6 @@ void setup() {
   }
   bool storedDisplayEnabled = true;
   displayModeConfigured = loadDisplayMode(storedDisplayEnabled);
-  displayOffMode = displayModeConfigured && !storedDisplayEnabled;
   voltageSetup();
   VoltageMeasurements bootVoltage = voltageReadMeasurements();
   logStage("power");
@@ -204,7 +203,6 @@ void setup() {
     if (saveDisplayMode(requestedDisplayEnabled)) {
       displayModeChanged = true;
       displayModeConfigured = true;
-      displayOffMode = !requestedDisplayEnabled;
       displayKeepOnInDeepSleep = requestedDisplayEnabled && poweredDisplayAllowed;
       if (requestedDisplayEnabled) {
         displayEnabled = true;
