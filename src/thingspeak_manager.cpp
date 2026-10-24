@@ -134,13 +134,19 @@ void thingSpeakSetSendInterval(uint32_t intervalSeconds) {
   minimumUpdateIntervalMs = intervalSeconds * 1000UL;
 }
 
+bool thingSpeakSendDue(uint32_t recordTimestamp) {
+  if (lastSendAttemptTimestamp == 0) {
+    return true;
+  }
+  uint32_t minimumUpdateIntervalSeconds = minimumUpdateIntervalMs / 1000UL;
+  return recordTimestamp >=
+         lastSendAttemptTimestamp + minimumUpdateIntervalSeconds;
+}
+
 ThingSpeakSendStatus thingSpeakSendMeasurement(
   const MeasurementRecord& record, const MeasurementRecord* pending,
   size_t pendingCount) {
-  uint32_t minimumUpdateIntervalSeconds = minimumUpdateIntervalMs / 1000UL;
-  if (lastSendAttemptTimestamp != 0 &&
-      record.timestamp <
-          lastSendAttemptTimestamp + minimumUpdateIntervalSeconds) {
+  if (!thingSpeakSendDue(record.timestamp)) {
     return ThingSpeakSendStatus::NotAttempted;
   }
   if (WiFi.status() != WL_CONNECTED) {

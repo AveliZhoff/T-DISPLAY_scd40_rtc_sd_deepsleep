@@ -20,4 +20,3 @@ size_t sdStorageCountRecords();
 bool sdStorageAppend(const MeasurementRecord& record);
 size_t sdStorageLoad(MeasurementRecord* records, size_t maxRecords);
 bool sdStorageRemoveFirst(size_t recordCount);
-void sdStoragePrintAll();

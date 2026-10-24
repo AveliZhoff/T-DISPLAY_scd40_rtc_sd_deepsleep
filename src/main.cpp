@@ -12,9 +12,12 @@
 #include "device_config.h"
 
 #define DISABLE_THINGSPEAK_SEND 0
+#define ENABLE_TIMING_LOG 1
 
 constexpr gpio_num_t BUTTON_1_PIN = GPIO_NUM_0;
 constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
+constexpr uint32_t measurementPollIntervalMs = 50;
+constexpr uint32_t buttonWakePauseMs = 1000;
 DeviceConfig deviceConfig = getDeviceConfig();
 
 RTC_DATA_ATTR uint32_t wakeCount = 0;
@@ -41,9 +44,21 @@ bool isDeepSleepWake = false;
 bool displayFullInit = true;
 bool displayEnabled = true;
 bool displayModeConfigured = false;
+bool displayOffMode = false;
 bool displayKeepOnInDeepSleep = false;
 bool wifiConnected = false;
+bool sendDue = true;
+bool telemetryEnabled = true;
 esp_sleep_wakeup_cause_t wakeupCause = ESP_SLEEP_WAKEUP_UNDEFINED;
+
+void logStage(const char* stage) {
+#if ENABLE_TIMING_LOG
+  Serial.printf("[T] %s=%lu\n", stage,
+                static_cast<unsigned long>(millis() - wakeStartTime));
+#else
+  (void)stage;
+#endif
+}
 
 bool loadDisplayMode(bool& enabled) {
   Preferences preferences;
@@ -105,8 +120,10 @@ void enterDeepSleep(bool keepDisplayOn) {
   if (displayEnabled) {
     bool keepBacklightOn = keepDisplayOn &&
                            (!displayModeConfigured || displayKeepOnInDeepSleep);
-    if (!keepBacklightOn) {
-      delay(1000);
+    // Единственная пауза перед сном: экран был временно включен кнопкой в
+    // режиме display off, даем пользователю увидеть показания перед гашением.
+    if (!keepBacklightOn && displayOffMode && isButtonWake()) {
+      delay(buttonWakePauseMs);
     }
     displaySetBacklight(keepBacklightOn);
   }
@@ -125,23 +142,27 @@ void enterDeepSleep(bool keepDisplayOn) {
                                    ESP_EXT1_WAKEUP_ALL_LOW) != ESP_OK) {
     Serial.println("[SLEEP] button 2 wakeup setup failed");
   }
+  logStage("sleep");
   esp_deep_sleep_start();
 }
 
 void setup() {
+  // Отсчет времени бодрствования начинается с первой операции: иначе метрика
+  // не учитывает запуск датчика и отладочные паузы.
+  wakeStartTime = millis();
+
   Serial.begin(115200);
-  delay(100);
 
   // Датчик запускается раньше всех подсистем: обновление его сигнала (~5 с)
   // идет параллельно остальной загрузке и сокращает время бодрствования.
   scd40StartTime = millis();
   bool scd40Started = scd40Begin();
+  logStage("scd40");
 
   Serial.println("\n[BOOT] start");
   Serial.printf("[SCD40] periodic measurement=%s at %lu ms\n",
                 scd40Started ? "ok" : "error",
                 static_cast<unsigned long>(scd40StartTime));
-  wakeStartTime = millis();
   ++wakeCount;
   wakeupCause = esp_sleep_get_wakeup_cause();
   isDeepSleepWake = esp_reset_reason() == ESP_RST_DEEPSLEEP;
@@ -157,8 +178,10 @@ void setup() {
   }
   bool storedDisplayEnabled = true;
   displayModeConfigured = loadDisplayMode(storedDisplayEnabled);
+  displayOffMode = displayModeConfigured && !storedDisplayEnabled;
   voltageSetup();
   VoltageMeasurements bootVoltage = voltageReadMeasurements();
+  logStage("power");
   bool canWakeDisplay = isDeepSleepWake &&
                         bootVoltage.isChargerConnected &&
                         previousChargerConnected;
@@ -181,6 +204,7 @@ void setup() {
     if (saveDisplayMode(requestedDisplayEnabled)) {
       displayModeChanged = true;
       displayModeConfigured = true;
+      displayOffMode = !requestedDisplayEnabled;
       displayKeepOnInDeepSleep = requestedDisplayEnabled && poweredDisplayAllowed;
       if (requestedDisplayEnabled) {
         displayEnabled = true;
@@ -216,16 +240,7 @@ void setup() {
                                      previousDisplayHumidity);
     }
   }
-
-  wifiConnected = wifiBegin();
-  if (!wifiConnected) {
-    if (displayEnabled) {
-      displayShowWifiStatus(DisplayStatus::Error);
-    }
-    Serial.println("[WIFI] unavailable; continuing in offline mode");
-  } else if (displayEnabled) {
-    displayShowWifiStatus(DisplayStatus::Connected);
-  }
+  logStage("display");
 
   char rtcDateText[16];
   char rtcTimeText[16];
@@ -239,6 +254,46 @@ void setup() {
     enterDeepSleep(false);
     return;
   }
+  logStage("rtc");
+
+  // ThingSpeak проверяется всегда (это только чтение конфигурации), а сеть и
+  // SD-карта поднимаются лишь когда отправка действительно нужна.
+  if (!thingSpeakBegin()) {
+    if (displayEnabled) {
+      displayShowThingSpeakStatus(DisplayStatus::Error);
+    }
+    if (displayFullInit) {
+      displayShowMessage("THINGSPEAK ERROR", 2);
+    }
+    enterDeepSleep(false);
+    return;
+  }
+  thingSpeakSetSendInterval(deviceConfig.thingSpeakSendIntervalSeconds);
+  sendDue = thingSpeakSendDue(rtcUnixTime());
+  telemetryEnabled = sendDue || displayEnabled;
+  bool ntpSyncRequired = rtcStatus == RtcStatus::NeedsSync && !isDeepSleepWake;
+  Serial.printf("[CYCLE] send due=%s telemetry=%s\n",
+                sendDue ? "true" : "false",
+                telemetryEnabled ? "true" : "false");
+
+  if (telemetryEnabled && displayEnabled) {
+    displayShowThingSpeakStatus(DisplayStatus::Connecting);
+  }
+  if (sendDue || displayEnabled || ntpSyncRequired) {
+    wifiConnected = wifiBegin();
+    if (!wifiConnected) {
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Error);
+      }
+      Serial.println("[WIFI] unavailable; continuing in offline mode");
+    } else if (displayEnabled) {
+      displayShowWifiStatus(DisplayStatus::Connected);
+    }
+    logStage("wifi");
+  } else {
+    Serial.println("[WIFI] skipped: send not due and display off");
+  }
+
   if (rtcStatus == RtcStatus::NeedsSync) {
     if (!wifiConnected) {
       Serial.println("[RTC] NTP sync skipped; using RTC time offline");
@@ -256,34 +311,21 @@ void setup() {
     displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
   }
 
-  if (displayEnabled) {
-    displayShowThingSpeakStatus(DisplayStatus::Connecting);
-  }
-  if (!thingSpeakBegin()) {
+  if (telemetryEnabled) {
     if (displayEnabled) {
-      displayShowThingSpeakStatus(DisplayStatus::Error);
+      displayShowThingSpeakStatus(wifiConnected ? DisplayStatus::Connected
+                                                : DisplayStatus::Error);
     }
-    if (displayFullInit) {
-      displayShowMessage("THINGSPEAK ERROR", 2);
+    sdReady = sdStorageBegin();
+    Serial.printf("[SD] ready=%s\n", sdReady ? "true" : "false");
+    if (displayEnabled) {
+      displayShowSdStatus(sdReady ? DisplayStatus::Connected
+                                  : DisplayStatus::Error);
     }
-    enterDeepSleep(false);
-    return;
+  } else {
+    Serial.println("[SD] skipped: send not due and display off");
   }
-  thingSpeakSetSendInterval(deviceConfig.thingSpeakSendIntervalSeconds);
-  if (displayEnabled) {
-    displayShowThingSpeakStatus(wifiConnected ? DisplayStatus::Connected
-                                               : DisplayStatus::Error);
-  }
-
-  sdReady = sdStorageBegin();
-  Serial.printf("[SD] ready=%s\n", sdReady ? "true" : "false");
-  if (displayEnabled) {
-    displayShowSdStatus(sdReady ? DisplayStatus::Connected
-                                : DisplayStatus::Error);
-  }
-  if (sdReady) {
-    sdStoragePrintAll();
-  }
+  logStage("sd");
 
   if (!scd40Started) {
     if (displayFullInit) {
@@ -308,7 +350,7 @@ void loop() {
   if (digitalRead(BUTTON_2_PIN) != LOW) {
     displayModeButtonHoldHandled = false;
   }
-  if (millis() - lastMeasurement < 1000) {
+  if (millis() - lastMeasurement < measurementPollIntervalMs) {
     return;
   }
   lastMeasurement = millis();
@@ -332,6 +374,7 @@ void loop() {
     scd40FirstMeasurementLogged = true;
     Serial.printf("[SCD40] first measurement ready at %lu ms after start\n",
                   static_cast<unsigned long>(millis() - scd40StartTime));
+    logStage("measure");
   }
 
   VoltageMeasurements voltage = voltageReadMeasurements();
@@ -388,6 +431,13 @@ void loop() {
   return;
 #endif
 
+  if (!telemetryEnabled) {
+    // Сеть и SD-карта в этом цикле не поднимались: отправка не требуется.
+    Serial.println("[TS] send skipped: interval not elapsed");
+    enterDeepSleep(voltage.isChargerConnected);
+    return;
+  }
+
   size_t actualStoredCount = sdReady ? sdStorageCountRecords() : 0;
   pendingCount = sdReady ? sdStorageLoad(pendingRecords, 11) : 0;
   size_t expectedPendingCount = actualStoredCount < 11 ? actualStoredCount : 11;
@@ -408,6 +458,7 @@ void loop() {
                 sendStatus == ThingSpeakSendStatus::Success ? "success"
                 : sendStatus == ThingSpeakSendStatus::Error ? "error"
                                                             : "not attempted");
+  logStage("send");
   if (sendStatus == ThingSpeakSendStatus::Success) {
     if (displayEnabled) {
       displayShowThingSpeakStatus(DisplayStatus::Connected);
