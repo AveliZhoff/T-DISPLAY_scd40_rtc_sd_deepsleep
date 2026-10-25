@@ -15,6 +15,36 @@ constexpr char tempPath[] = "/measurements.tmp";
 SPIClass sdSpi(HSPI);
 bool sdSpiStarted = false;
 bool sdMounted = false;
+
+bool parseRecordLine(const String& line, MeasurementRecord& record) {
+  unsigned long timestamp = 0;
+  unsigned int co2 = 0;
+  float temperature = 0.0f;
+  float humidity = 0.0f;
+  float battery = 0.0f;
+  float supply = 0.0f;
+  unsigned long wakeCount = 0;
+  unsigned long awakeTimeMilliseconds = 0;
+  unsigned long storedRecords = 0;
+  int parsed = sscanf(line.c_str(), "%lu,%u,%f,%f,%f,%f,%lu,%lu,%lu",
+                      &timestamp, &co2, &temperature, &humidity, &battery,
+                      &supply, &wakeCount, &awakeTimeMilliseconds,
+                      &storedRecords);
+  if (parsed < 8) {
+    return false;
+  }
+
+  record = {static_cast<uint32_t>(timestamp),
+            static_cast<uint16_t>(co2),
+            temperature,
+            humidity,
+            battery,
+            supply,
+            static_cast<uint32_t>(wakeCount),
+            static_cast<uint32_t>(awakeTimeMilliseconds),
+            static_cast<uint32_t>(storedRecords)};
+  return true;
+}
 }
 
 size_t sdStorageCountRecords() {
@@ -85,6 +115,72 @@ bool sdStorageAppend(const MeasurementRecord& record) {
   return true;
 }
 
+SdStorageAppendResult sdStorageAppendOfflineIfInterval(
+    const MeasurementRecord& record, uint32_t minimumIntervalSeconds) {
+  if (!sdMounted) {
+    Serial.println("[SD] offline append failed; card is not mounted");
+    return SdStorageAppendResult::Error;
+  }
+
+  bool hasPreviousRecord = false;
+  uint32_t lastTimestamp = 0;
+  bool hasNonEmptyLine = false;
+  bool lastLineWasValid = true;
+
+  if (SD.exists(recordsPath)) {
+    File file = SD.open(recordsPath, FILE_READ);
+    if (!file) {
+      Serial.println("[SD] offline append failed; queue read open failed");
+      return SdStorageAppendResult::Error;
+    }
+
+    while (file.available()) {
+      String line = file.readStringUntil('\n');
+      line.trim();
+      if (line.length() == 0) {
+        continue;
+      }
+
+      hasNonEmptyLine = true;
+      MeasurementRecord previousRecord{};
+      if (!parseRecordLine(line, previousRecord)) {
+        lastLineWasValid = false;
+        Serial.println("[SD] invalid queue record while checking interval");
+        continue;
+      }
+
+      if (hasPreviousRecord && previousRecord.timestamp < lastTimestamp) {
+        file.close();
+        Serial.println("[SD] offline append failed; queue timestamps are out of order");
+        return SdStorageAppendResult::Error;
+      }
+      hasPreviousRecord = true;
+      lastTimestamp = previousRecord.timestamp;
+      lastLineWasValid = true;
+    }
+    file.close();
+  }
+
+  if (hasNonEmptyLine && !lastLineWasValid) {
+    Serial.println("[SD] offline append failed; last queue record is invalid");
+    return SdStorageAppendResult::Error;
+  }
+  if (hasPreviousRecord) {
+    if (record.timestamp < lastTimestamp) {
+      Serial.println("[SD] offline append failed; current timestamp precedes queue");
+      return SdStorageAppendResult::Error;
+    }
+    if (record.timestamp - lastTimestamp < minimumIntervalSeconds) {
+      return SdStorageAppendResult::SkippedInterval;
+    }
+  }
+
+  if (!sdStorageAppend(record)) {
+    return SdStorageAppendResult::Error;
+  }
+  return SdStorageAppendResult::Stored;
+}
+
 size_t sdStorageLoad(MeasurementRecord* records, size_t maxRecords) {
   File file = SD.open(recordsPath, FILE_READ);
   if (!file) {
@@ -100,29 +196,13 @@ size_t sdStorageLoad(MeasurementRecord* records, size_t maxRecords) {
       continue;
     }
 
-    unsigned long timestamp = 0;
-    unsigned int co2 = 0;
-    float temperature = 0.0f;
-    float humidity = 0.0f;
-    float battery = 0.0f;
-    float supply = 0.0f;
-    unsigned long wakeCount = 0;
-    unsigned long awakeTimeMilliseconds = 0;
-    unsigned long storedRecords = 0;
-    int parsed = sscanf(line.c_str(), "%lu,%u,%f,%f,%f,%f,%lu,%lu,%lu",
-                        &timestamp, &co2, &temperature, &humidity, &battery,
-              &supply, &wakeCount, &awakeTimeMilliseconds,
-              &storedRecords);
-    if (parsed < 8) {
+    MeasurementRecord record{};
+    if (!parseRecordLine(line, record)) {
       Serial.println("[SD] invalid record skipped");
       continue;
     }
 
-    records[count++] = {static_cast<uint32_t>(timestamp),
-                        static_cast<uint16_t>(co2), temperature, humidity,
-                        battery, supply, static_cast<uint32_t>(wakeCount),
-                        static_cast<uint32_t>(awakeTimeMilliseconds),
-                        static_cast<uint32_t>(storedRecords)};
+    records[count++] = record;
   }
   file.close();
   Serial.printf("[SD] loaded=%u records, stored=%u\n",

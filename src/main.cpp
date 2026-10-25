@@ -397,7 +397,22 @@ void loop() {
           displayShowWifiStatus(DisplayStatus::Error);
         }
         Serial.println("[TS] WiFi unavailable; storing measurement for retry");
-        if (sdReady && !sdStorageAppend(currentRecord)) {
+        if (sdReady) {
+          SdStorageAppendResult appendResult =
+              sdStorageAppendOfflineIfInterval(
+                  currentRecord, deviceConfig.thingSpeakSendIntervalSeconds);
+          if (appendResult == SdStorageAppendResult::Stored) {
+            Serial.println("[SD] offline measurement stored");
+          } else if (appendResult == SdStorageAppendResult::SkippedInterval) {
+            Serial.println("[SD] offline measurement skipped; send interval not elapsed");
+          } else {
+            Serial.println("[SD] offline measurement could not be stored");
+            if (displayFullInit) {
+              displayShowSdStatus(DisplayStatus::Error);
+            }
+          }
+        } else {
+          Serial.println("[SD] offline measurement not stored; card unavailable");
           if (displayFullInit) {
             displayShowSdStatus(DisplayStatus::Error);
           }
