@@ -380,6 +380,28 @@ void loop() {
     Serial.printf("[TS] send skipped; interval not elapsed for current timestamp=%lu\n",
                   static_cast<unsigned long>(currentRecord.timestamp));
   } else {
+    if (!wifiConnected) {
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Connecting);
+      }
+      wifiConnected = wifiBegin();
+      if (!wifiConnected) {
+        if (displayEnabled) {
+          displayShowWifiStatus(DisplayStatus::Error);
+        }
+        Serial.println("[TS] WiFi unavailable; storing measurement for retry");
+        if (sdReady && !sdStorageAppend(currentRecord)) {
+          if (displayFullInit) {
+            displayShowSdStatus(DisplayStatus::Error);
+          }
+        }
+        enterDeepSleep(voltage.isChargerConnected);
+        return;
+      }
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Connected);
+      }
+    }
     if (displayEnabled) {
       displayShowThingSpeakStatus(DisplayStatus::Connecting);
     }
@@ -397,29 +419,6 @@ void loop() {
       }
       enterDeepSleep(voltage.isChargerConnected);
       return;
-    }
-    if (!wifiConnected) {
-      if (displayEnabled) {
-        displayShowWifiStatus(DisplayStatus::Connecting);
-      }
-      wifiConnected = wifiBegin();
-      if (!wifiConnected) {
-        if (displayEnabled) {
-          displayShowWifiStatus(DisplayStatus::Error);
-          displayShowThingSpeakStatus(DisplayStatus::Error);
-        }
-        Serial.println("[TS] WiFi unavailable; storing measurement for retry");
-        if (sdReady && !sdStorageAppend(currentRecord)) {
-          if (displayFullInit) {
-            displayShowSdStatus(DisplayStatus::Error);
-          }
-        }
-        enterDeepSleep(voltage.isChargerConnected);
-        return;
-      }
-      if (displayEnabled) {
-        displayShowWifiStatus(DisplayStatus::Connected);
-      }
     }
     Serial.printf("[TS] sending %u stored + 1 current measurement\n",
                   static_cast<unsigned>(pendingCount));
