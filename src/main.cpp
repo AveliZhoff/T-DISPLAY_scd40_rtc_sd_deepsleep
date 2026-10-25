@@ -206,7 +206,6 @@ void setup() {
   }
   if (displayEnabled) {
     displayResetStatuses();
-    displayShowWifiStatus(DisplayStatus::Connecting);
     displayShowScdStatus(scd40Started ? DisplayStatus::Connected
                                       : DisplayStatus::Error);
     if (previousDisplayValid) {
@@ -239,13 +238,18 @@ void setup() {
         displayShowWifiStatus(DisplayStatus::Error);
       }
       Serial.println("[RTC] NTP sync skipped; using RTC time offline");
-    } else if (!isDeepSleepWake) {
-      displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Error);
-      if (!rtcSyncFromNtp(rtcDateText, sizeof(rtcDateText), rtcTimeText,
-                          sizeof(rtcTimeText))) {
-        displayShowMessage("NTP ERROR", 2);
-        enterDeepSleep(false);
-        return;
+    } else {
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Connected);
+      }
+      if (!isDeepSleepWake) {
+        displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Error);
+        if (!rtcSyncFromNtp(rtcDateText, sizeof(rtcDateText), rtcTimeText,
+                            sizeof(rtcTimeText))) {
+          displayShowMessage("NTP ERROR", 2);
+          enterDeepSleep(false);
+          return;
+        }
       }
     }
   }
