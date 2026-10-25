@@ -15,6 +15,8 @@ enum class ThingSpeakSendStatus {
 	Error
 };
 
+bool thingSpeakCanSendNow(uint32_t currentTimestamp);
+
 ThingSpeakSendStatus thingSpeakSendMeasurement(const MeasurementRecord& record,
 											   const MeasurementRecord* pending,
 											   size_t pendingCount);

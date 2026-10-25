@@ -11,8 +11,6 @@
 #include "wifi_manager.h"
 #include "device_config.h"
 
-#define DISABLE_THINGSPEAK_SEND 0
-
 constexpr gpio_num_t BUTTON_1_PIN = GPIO_NUM_0;
 constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
 DeviceConfig deviceConfig = getDeviceConfig();
@@ -43,6 +41,7 @@ bool displayEnabled = true;
 bool displayModeConfigured = false;
 bool displayKeepOnInDeepSleep = false;
 bool wifiConnected = false;
+bool rtcNeedsSync = false;
 esp_sleep_wakeup_cause_t wakeupCause = ESP_SLEEP_WAKEUP_UNDEFINED;
 
 bool loadDisplayMode(bool& enabled) {
@@ -129,8 +128,8 @@ void enterDeepSleep(bool keepDisplayOn) {
 }
 
 void setup() {
-  Serial.begin(115200);
-  delay(100);
+  // Serial.begin(115200);
+  // delay(100);
 
   // Датчик запускается раньше всех подсистем: обновление его сигнала (~5 с)
   // идет параллельно остальной загрузке и сокращает время бодрствования.
@@ -217,21 +216,12 @@ void setup() {
     }
   }
 
-  wifiConnected = wifiBegin();
-  if (!wifiConnected) {
-    if (displayEnabled) {
-      displayShowWifiStatus(DisplayStatus::Error);
-    }
-    Serial.println("[WIFI] unavailable; continuing in offline mode");
-  } else if (displayEnabled) {
-    displayShowWifiStatus(DisplayStatus::Connected);
-  }
-
   char rtcDateText[16];
   char rtcTimeText[16];
   RtcStatus rtcStatus = rtcBegin(!isDeepSleepWake, rtcDateText,
                                  sizeof(rtcDateText), rtcTimeText,
                                  sizeof(rtcTimeText));
+  rtcNeedsSync = rtcStatus == RtcStatus::NeedsSync;
   if (rtcStatus == RtcStatus::Error) {
     if (!isDeepSleepWake) {
       displayShowMessage("RTC ERROR", 2);
@@ -239,8 +229,15 @@ void setup() {
     enterDeepSleep(false);
     return;
   }
-  if (rtcStatus == RtcStatus::NeedsSync) {
+  if (rtcNeedsSync) {
+    if (displayEnabled) {
+      displayShowWifiStatus(DisplayStatus::Connecting);
+    }
+    wifiConnected = wifiBegin();
     if (!wifiConnected) {
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Error);
+      }
       Serial.println("[RTC] NTP sync skipped; using RTC time offline");
     } else if (!isDeepSleepWake) {
       displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Error);
@@ -256,24 +253,7 @@ void setup() {
     displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
   }
 
-  if (displayEnabled) {
-    displayShowThingSpeakStatus(DisplayStatus::Connecting);
-  }
-  if (!thingSpeakBegin()) {
-    if (displayEnabled) {
-      displayShowThingSpeakStatus(DisplayStatus::Error);
-    }
-    if (displayFullInit) {
-      displayShowMessage("THINGSPEAK ERROR", 2);
-    }
-    enterDeepSleep(false);
-    return;
-  }
   thingSpeakSetSendInterval(deviceConfig.thingSpeakSendIntervalSeconds);
-  if (displayEnabled) {
-    displayShowThingSpeakStatus(wifiConnected ? DisplayStatus::Connected
-                                               : DisplayStatus::Error);
-  }
 
   sdReady = sdStorageBegin();
   Serial.printf("[SD] ready=%s\n", sdReady ? "true" : "false");
@@ -378,16 +358,6 @@ void loop() {
   previousDisplayRtcValid = false;
   previousDisplayValid = true;
 
-#if DISABLE_THINGSPEAK_SEND
-  if (sdReady && sdStorageAppend(currentRecord)) {
-    Serial.println("[SD] measurement stored; ThingSpeak send disabled");
-  } else {
-    Serial.println("[SD] measurement store failed");
-  }
-  enterDeepSleep(voltage.isChargerConnected);
-  return;
-#endif
-
   size_t actualStoredCount = sdReady ? sdStorageCountRecords() : 0;
   pendingCount = sdReady ? sdStorageLoad(pendingRecords, 11) : 0;
   size_t expectedPendingCount = actualStoredCount < 11 ? actualStoredCount : 11;
@@ -400,33 +370,81 @@ void loop() {
                 pendingCount == expectedPendingCount ? "ok" : "mismatch");
   Serial.printf("[SD] payload will contain %u stored + 1 current measurement\n",
                 static_cast<unsigned>(pendingCount));
-  Serial.printf("[TS] sending %u stored + 1 current measurement\n",
-                static_cast<unsigned>(pendingCount));
-  ThingSpeakSendStatus sendStatus =
-      thingSpeakSendMeasurement(currentRecord, pendingRecords, pendingCount);
-  Serial.printf("[TS] send result=%s\n",
-                sendStatus == ThingSpeakSendStatus::Success ? "success"
-                : sendStatus == ThingSpeakSendStatus::Error ? "error"
-                                                            : "not attempted");
-  if (sendStatus == ThingSpeakSendStatus::Success) {
+
+  bool shouldAttemptThingSpeakSend = thingSpeakCanSendNow(currentRecord.timestamp);
+  if (!shouldAttemptThingSpeakSend) {
+    Serial.printf("[TS] send skipped; interval not elapsed for current timestamp=%lu\n",
+                  static_cast<unsigned long>(currentRecord.timestamp));
+  } else {
     if (displayEnabled) {
-      displayShowThingSpeakStatus(DisplayStatus::Connected);
+      displayShowThingSpeakStatus(DisplayStatus::Connecting);
     }
-    if (sdReady && pendingCount > 0 && !sdStorageRemoveFirst(pendingCount)) {
+    if (!thingSpeakBegin()) {
       if (displayEnabled) {
-        displayShowSdStatus(DisplayStatus::Error);
+        displayShowThingSpeakStatus(DisplayStatus::Error);
       }
-    } else if (sdReady) {
-      Serial.printf("[SD] deleted after successful send=%u records\n",
-                    static_cast<unsigned>(pendingCount));
-    }
-  } else if (sendStatus == ThingSpeakSendStatus::Error) {
-    if (displayEnabled) {
-      displayShowThingSpeakStatus(DisplayStatus::Error);
-    }
-    if (sdReady && !sdStorageAppend(currentRecord)) {
       if (displayFullInit) {
-        displayShowSdStatus(DisplayStatus::Error);
+        displayShowMessage("THINGSPEAK ERROR", 2);
+      }
+      if (sdReady && !sdStorageAppend(currentRecord)) {
+        if (displayFullInit) {
+          displayShowSdStatus(DisplayStatus::Error);
+        }
+      }
+      enterDeepSleep(voltage.isChargerConnected);
+      return;
+    }
+    if (!wifiConnected) {
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Connecting);
+      }
+      wifiConnected = wifiBegin();
+      if (!wifiConnected) {
+        if (displayEnabled) {
+          displayShowWifiStatus(DisplayStatus::Error);
+          displayShowThingSpeakStatus(DisplayStatus::Error);
+        }
+        Serial.println("[TS] WiFi unavailable; storing measurement for retry");
+        if (sdReady && !sdStorageAppend(currentRecord)) {
+          if (displayFullInit) {
+            displayShowSdStatus(DisplayStatus::Error);
+          }
+        }
+        enterDeepSleep(voltage.isChargerConnected);
+        return;
+      }
+      if (displayEnabled) {
+        displayShowWifiStatus(DisplayStatus::Connected);
+      }
+    }
+    Serial.printf("[TS] sending %u stored + 1 current measurement\n",
+                  static_cast<unsigned>(pendingCount));
+    ThingSpeakSendStatus sendStatus =
+        thingSpeakSendMeasurement(currentRecord, pendingRecords, pendingCount);
+    Serial.printf("[TS] send result=%s\n",
+                  sendStatus == ThingSpeakSendStatus::Success ? "success"
+                  : sendStatus == ThingSpeakSendStatus::Error ? "error"
+                                                              : "not attempted");
+    if (sendStatus == ThingSpeakSendStatus::Success) {
+      if (displayEnabled) {
+        displayShowThingSpeakStatus(DisplayStatus::Connected);
+      }
+      if (sdReady && pendingCount > 0 && !sdStorageRemoveFirst(pendingCount)) {
+        if (displayEnabled) {
+          displayShowSdStatus(DisplayStatus::Error);
+        }
+      } else if (sdReady) {
+        Serial.printf("[SD] deleted after successful send=%u records\n",
+                      static_cast<unsigned>(pendingCount));
+      }
+    } else if (sendStatus == ThingSpeakSendStatus::Error) {
+      if (displayEnabled) {
+        displayShowThingSpeakStatus(DisplayStatus::Error);
+      }
+      if (sdReady && !sdStorageAppend(currentRecord)) {
+        if (displayFullInit) {
+          displayShowSdStatus(DisplayStatus::Error);
+        }
       }
     }
   }
