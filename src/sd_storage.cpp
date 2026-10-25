@@ -13,6 +13,8 @@ constexpr uint32_t sdSpeed = 1000000;
 constexpr char recordsPath[] = "/measurements.csv";
 constexpr char tempPath[] = "/measurements.tmp";
 SPIClass sdSpi(HSPI);
+bool sdSpiStarted = false;
+bool sdMounted = false;
 }
 
 size_t sdStorageCountRecords() {
@@ -38,15 +40,30 @@ bool sdStorageBegin() {
                 sdMisoPin, sdMosiPin, sdCsPin,
                 static_cast<unsigned long>(sdSpeed));
   sdSpi.begin(sdSckPin, sdMisoPin, sdMosiPin, sdCsPin);
+  sdSpiStarted = true;
   if (!SD.begin(sdCsPin, sdSpi, sdSpeed)) {
     Serial.println("[SD] mount failed");
     return false;
   }
+  sdMounted = true;
 
   uint8_t cardType = SD.cardType();
   Serial.printf("[SD] mounted, type=%u size=%llu MB\n", cardType,
                 SD.cardSize() / (1024ULL * 1024ULL));
   return true;
+}
+
+void sdStorageEnd() {
+  if (sdMounted) {
+    SD.end();
+    sdMounted = false;
+    Serial.println("[SD] unmounted");
+  }
+  if (sdSpiStarted) {
+    sdSpi.end();
+    sdSpiStarted = false;
+    Serial.println("[SD] HSPI stopped");
+  }
 }
 
 bool sdStorageAppend(const MeasurementRecord& record) {

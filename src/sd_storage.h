@@ -16,6 +16,7 @@ struct MeasurementRecord {
 };
 
 bool sdStorageBegin();
+void sdStorageEnd();
 size_t sdStorageCountRecords();
 bool sdStorageAppend(const MeasurementRecord& record);
 size_t sdStorageLoad(MeasurementRecord* records, size_t maxRecords);

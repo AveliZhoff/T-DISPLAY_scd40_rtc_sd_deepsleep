@@ -101,6 +101,13 @@ bool displayModeButtonHeldForOneSecond() {
 }
 
 void enterDeepSleep(bool keepDisplayOn) {
+  if (!scd40StopPeriodicMeasurement()) {
+    Serial.println("[SCD40] failed to stop periodic measurement before sleep");
+  } else {
+    Serial.println("[SCD40] periodic measurement stopped before sleep");
+  }
+  sdStorageEnd();
+  sdReady = false;
   if (displayEnabled) {
     bool keepBacklightOn = keepDisplayOn &&
                            (!displayModeConfigured || displayKeepOnInDeepSleep);
