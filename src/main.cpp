@@ -213,7 +213,7 @@ void setup() {
   }
   if (displayEnabled) {
     displayResetStatuses();
-    displayShowScdStatus(scd40Started ? DisplayStatus::Connected
+    displayShowScdStatus(scd40Started ? DisplayStatus::Connecting
                                       : DisplayStatus::Error);
     if (previousDisplayValid) {
       displayShowPreviousMeasurement(previousMeasurementCo2,
@@ -313,10 +313,17 @@ void loop() {
     return;
   }
   if (status == Scd40ReadStatus::Error) {
+    if (displayEnabled) {
+      displayShowScdStatus(DisplayStatus::Error);
+    }
     if (displayFullInit) {
       displayShowMessage("SCD40 ERROR", 2);
     }
     return;
+  }
+
+  if (displayEnabled) {
+    displayShowScdStatus(DisplayStatus::Connected);
   }
 
   if (!scd40FirstMeasurementLogged) {
