@@ -72,6 +72,21 @@ void drawStatusLabel(const char* label, uint16_t color, uint8_t column) {
 void drawFrame() {
   display.drawRect(0, 0, display.width(), display.height(), TFT_BLUE);
 }
+
+void eraseRtcTime() {
+  display.setTextDatum(MC_DATUM);
+  display.setTextColor(TFT_BLACK, TFT_BLACK);
+  if (previousRtcDate[0] != '\0') {
+    display.drawString(previousRtcDate, display.width() / 2, rtcDateY,
+                       rtcFont);
+  }
+  if (previousRtcTime[0] != '\0') {
+    display.drawString(previousRtcTime, display.width() / 2, rtcTimeY,
+                       rtcFont);
+  }
+  previousRtcDate[0] = '\0';
+  previousRtcTime[0] = '\0';
+}
 }
 
 void displayBegin() {
@@ -138,21 +153,16 @@ void displayShowSdStatus(DisplayStatus status) {
 void displayShowRtcTime(const char* dateText, const char* timeText,
                         DisplayStatus status) {
   display.setTextDatum(MC_DATUM);
-  if (previousRtcDate[0] != '\0') {
-    display.setTextColor(TFT_BLACK, TFT_BLACK);
-    display.drawString(previousRtcDate, display.width() / 2, rtcDateY,
-               rtcFont);
-  }
-  if (previousRtcTime[0] != '\0') {
-    display.setTextColor(TFT_BLACK, TFT_BLACK);
-    display.drawString(previousRtcTime, display.width() / 2, rtcTimeY,
-               rtcFont);
-  }
+  eraseRtcTime();
   display.setTextColor(statusColor(status), TFT_BLACK);
   display.drawString(dateText, display.width() / 2, rtcDateY, rtcFont);
   display.drawString(timeText, display.width() / 2, rtcTimeY, rtcFont);
   snprintf(previousRtcDate, sizeof(previousRtcDate), "%s", dateText);
   snprintf(previousRtcTime, sizeof(previousRtcTime), "%s", timeText);
+}
+
+void displayClearRtcTime() {
+  eraseRtcTime();
 }
 
 void displaySetBacklight(bool enabled) {

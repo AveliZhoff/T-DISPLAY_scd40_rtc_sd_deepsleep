@@ -13,6 +13,7 @@
 
 constexpr gpio_num_t BUTTON_1_PIN = GPIO_NUM_0;
 constexpr gpio_num_t BUTTON_2_PIN = GPIO_NUM_35;
+constexpr uint32_t rtcDisplayDurationMs = 3000;
 DeviceConfig deviceConfig = getDeviceConfig();
 
 RTC_DATA_ATTR uint32_t wakeCount = 0;
@@ -78,6 +79,14 @@ bool saveDisplayMode(bool enabled) {
 bool isButtonWake() {
   return wakeupCause == ESP_SLEEP_WAKEUP_EXT0 ||
          wakeupCause == ESP_SLEEP_WAKEUP_EXT1;
+}
+
+void clearRtcTimeAfterDisplay(uint32_t displayedAt) {
+  uint32_t elapsed = millis() - displayedAt;
+  if (elapsed < rtcDisplayDurationMs) {
+    delay(rtcDisplayDurationMs - elapsed);
+  }
+  displayClearRtcTime();
 }
 
 bool displayModeButtonHeldForOneSecond() {
@@ -228,6 +237,8 @@ void setup() {
                                  sizeof(rtcDateText), rtcTimeText,
                                  sizeof(rtcTimeText));
   rtcNeedsSync = rtcStatus == RtcStatus::NeedsSync;
+  bool rtcTimeDisplayed = false;
+  uint32_t rtcTimeDisplayedAt = 0;
   if (rtcStatus == RtcStatus::Error) {
     if (!isDeepSleepWake) {
       displayShowMessage("RTC ERROR", 2);
@@ -237,6 +248,11 @@ void setup() {
   }
   if (rtcNeedsSync) {
     if (displayEnabled) {
+      displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Error);
+      rtcTimeDisplayed = true;
+      rtcTimeDisplayedAt = millis();
+    }
+    if (displayEnabled) {
       displayShowWifiStatus(DisplayStatus::Connecting);
     }
     wifiConnected = wifiBegin();
@@ -245,23 +261,38 @@ void setup() {
         displayShowWifiStatus(DisplayStatus::Error);
       }
       Serial.println("[RTC] NTP sync skipped; using RTC time offline");
+      if (rtcTimeDisplayed) {
+        clearRtcTimeAfterDisplay(rtcTimeDisplayedAt);
+        rtcTimeDisplayed = false;
+      }
     } else {
       if (displayEnabled) {
         displayShowWifiStatus(DisplayStatus::Connected);
       }
       if (!isDeepSleepWake) {
-        displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Error);
         if (!rtcSyncFromNtp(rtcDateText, sizeof(rtcDateText), rtcTimeText,
                             sizeof(rtcTimeText))) {
+          if (rtcTimeDisplayed) {
+            clearRtcTimeAfterDisplay(rtcTimeDisplayedAt);
+            rtcTimeDisplayed = false;
+          }
           displayShowMessage("NTP ERROR", 2);
           enterDeepSleep(false);
           return;
         }
+        if (rtcTimeDisplayed) {
+          displayClearRtcTime();
+          displayShowRtcTime(rtcDateText, rtcTimeText,
+                             DisplayStatus::Connected);
+          clearRtcTimeAfterDisplay(millis());
+          rtcTimeDisplayed = false;
+        }
       }
     }
   }
-  if (!isDeepSleepWake) {
+  if (!isDeepSleepWake && displayEnabled && !rtcNeedsSync) {
     displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
+    clearRtcTimeAfterDisplay(millis());
   }
 
   thingSpeakSetSendInterval(deviceConfig.thingSpeakSendIntervalSeconds);
@@ -286,7 +317,6 @@ void setup() {
 
   if (displayFullInit) {
     displayShowMessage("W8 ...", 3);
-    displayShowRtcTime(rtcDateText, rtcTimeText, DisplayStatus::Connected);
     if (displayEnabled && previousDisplayValid) {
       displayShowPreviousMeasurement(previousMeasurementCo2,
                                      previousDisplayTemperature,

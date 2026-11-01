@@ -18,6 +18,7 @@ void displayShowThingSpeakStatus(DisplayStatus status);
 void displayShowSdStatus(DisplayStatus status);
 void displayShowRtcTime(const char* dateText, const char* timeText,
 						DisplayStatus status);
+void displayClearRtcTime();
 void displaySetBacklight(bool enabled);
 void displayClearMessage();
 void displayShowModeMessage(const char* state);
